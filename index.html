@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Dodge</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            display: block;
+            margin: 0 auto;
+            background: linear-gradient(to bottom, #000033, #000066); /* Dark space gradient */
+        }
+        #gameOver {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-family: Arial, sans-serif;
+            font-size: 36px;
+            color: white;
+            text-align: center;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+        }
+        #restartButton {
+            display: none;
+            position: absolute;
+            top: 60%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px;
+            font-size: 24px;
+            cursor: pointer;
+            background-color: #ff4500;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        #restartButton:hover {
+            background-color: #ff6347;
+        }
+        #scoreDisplay {
+            text-align: center;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+            margin-top: 10px;
+            color: white;
+            text-shadow: 1px 1px 2px black;
+        }
+        #scoreboard {
+            display: none;
+            text-align: center;
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            color: white;
+            margin-top: 20px;
+            text-shadow: 1px 1px 2px black;
+        }
+    </style>
+</head>
+<body onload="resetScoreboard()"> <!-- Reset scoreboard on page load -->
+    <canvas id="gameCanvas" width="600" height="400"></canvas>
+    <div id="gameOver">Game Over!</div>
+    <button id="restartButton" onclick="restartGame()">Restart</button>
+    <div id="scoreDisplay">Session Score: <span id="score">0</span></div>
+    <div id="scoreboard"></div>
+
+    <audio id="hitSound" src="https://www.myinstants.com/media/sounds/explosion-1-695661.mp3"></audio>
+    <audio id="tickSound" src="https://www.myinstants.com/media/sounds/coin-2-44100.mp3"></audio>
+    <audio id="powerUpSound" src="https://www.myinstants.com/media/sounds/power-up-4.mp3"></audio>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameOverDiv = document.getElementById('gameOver');
+        const restartButton = document.getElementById('restartButton');
+        const scoreElement = document.getElementById('score');
+        const scoreboardElement = document.getElementById('scoreboard');
+        const hitSound = document.getElementById('hitSound');
+        const tickSound = document.getElementById('tickSound');
+        const powerUpSound = document.getElementById('powerUpSound');
+
+        let player = { x: 300, y: 200, width: 30, height: 30, speed: 8 }; // Faster, smaller spaceship
+        let asteroids = []; // Array for multiple asteroids
+        let powerUps = []; // Array for power-ups
+        let score = 0; // Session score, resets per session
+        let gameActive = true;
+        let lastTime = 0;
+        let shieldActive = false; // Track shield status
+
+        // Reset scoreboard on page load
+        function resetScoreboard() {
+            localStorage.removeItem('pastScores'); // Clear all past scores on browser reload
+            scoreboardElement.style.display = 'none';
+            scoreboardElement.innerHTML = '';
+        }
+
+        // Initialize asteroids and power-ups
+        function initGame() {
+            asteroids = []; // Clear existing asteroids
+            powerUps = []; // Clear existing power-ups
+            for (let i = 0; i < 5; i++) { // Start with 5 asteroids for challenge
+                spawnAsteroid();
+            }
+            // Spawn a power-up every 10 seconds
+            setInterval(spawnPowerUp, 10000);
+        }
+
+        function spawnAsteroid() {
+            const side = Math.floor(Math.random() * 4); // Random side (0=top, 1=right, 2=bottom, 3=left)
+            let x, y, dx, dy;
+
+            if (side === 0) { // Top
+                x = Math.random() * canvas.width;
+                y = -20;
+                dx = (Math.random() - 0.5) * 2;
+                dy = 2 + Math.random() * 2;
+            } else if (side === 1) { // Right
+                x = canvas.width + 20;
+                y = Math.random() * canvas.height;
+                dx = -2 - Math.random() * 2;
+                dy = (Math.random() - 0.5) * 2;
+            } else if (side === 2) { // Bottom
+                x = Math.random() * canvas.width;
+                y = canvas.height + 20;
+                dx = (Math.random() - 0.5) * 2;
+                dy = -2 - Math.random() * 2;
+            } else { // Left
+                x = -20;
+                y = Math.random() * canvas.height;
+                dx = 2 + Math.random() * 2;
+                dy = (Math.random() - 0.5) * 2;
+            }
+
+            asteroids.push({
+                x: x,
+                y: y,
+                width: 20,
+                height: 20,
+                dx: dx,
+                dy: dy
+            });
+        }
+
+        function spawnPowerUp() {
+            if (powerUps.length < 1 && gameActive) { // Limit to 1 active power-up
+                powerUps.push({
+                    x: Math.random() * (canvas.width - 20),
+                    y: -20,
+                    width: 20,
+                    height: 20,
+                    speed: 2,
+                    type: Math.random() < 0.5 ? 'speed' : 'shield' // Randomly speed boost or shield
+                });
+            }
+        }
+
+        function draw(timestamp) {
+            if (!gameActive) return;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw player (spaceship)
+            ctx.fillStyle = shieldActive ? 'lightblue' : 'purple'; // Blue if shield is active
+            ctx.beginPath();
+            ctx.arc(player.x + player.width / 2, player.y + player.height / 2, player.width / 2, 0, Math.PI * 2);
+            ctx.fill(); // Draw spaceship as a circle for a sleek look
+
+            // Draw and update asteroids
+            asteroids.forEach((asteroid, index) => {
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.arc(asteroid.x + asteroid.width / 2, asteroid.y + asteroid.height / 2, asteroid.width / 2, 0, Math.PI * 2);
+                ctx.fill(); // Draw asteroids as circles
+
+                asteroid.x += asteroid.dx;
+                asteroid.y += asteroid.dy;
+
+                // Keep asteroids within bounds or respawn if off-screen
+                if (asteroid.x < -50 || asteroid.x > canvas.width + 50 || asteroid.y < -50 || asteroid.y > canvas.height + 50) {
+                    asteroids.splice(index, 1);
+                    spawnAsteroid();
+                }
+
+                // Check collision with player
+                if (asteroid.x + asteroid.width >= player.x && asteroid.x <= player.x + player.width &&
+                    asteroid.y + asteroid.height >= player.y && asteroid.y <= player.y + player.height) {
+                    if (shieldActive) {
+                        shieldActive = false; // Shield absorbs hit
+                        asteroids.splice(index, 1);
+                        spawnAsteroid();
+                    } else {
+                        gameActive = false;
+                        hitSound.play(); // Play hit sound
+                        endGame();
+                    }
+                }
+            });
+
+            // Draw and update power-ups
+            powerUps.forEach((powerUp, index) => {
+                ctx.fillStyle = powerUp.type === 'speed' ? 'green' : 'blue';
+                ctx.beginPath();
+                ctx.arc(powerUp.x + powerUp.width / 2, powerUp.y + powerUp.height / 2, powerUp.width / 2, 0, Math.PI * 2);
+                ctx.fill(); // Draw power-up as a circle
+
+                powerUp.y += powerUp.speed;
+
+                // Check collision with player
+                if (powerUp.x + powerUp.width >= player.x && powerUp.x <= player.x + player.width &&
+                    powerUp.y + powerUp.height >= player.y && powerUp.y <= player.y + player.height) {
+                    if (powerUp.type === 'speed') {
+                        player.speed = 12; // Temporary speed boost
+                        setTimeout(() => player.speed = 8, 5000); // Revert after 5 seconds
+                    } else {
+                        shieldActive = true; // Activate shield for 5 seconds
+                        setTimeout(() => shieldActive = false, 5000);
+                    }
+                    powerUpSound.play(); // Play power-up sound
+                    powerUps.splice(index, 1);
+                }
+
+                // Remove power-up if off-screen
+                if (powerUp.y > canvas.height) {
+                    powerUps.splice(index, 1);
+                }
+            });
+
+            // Update score based on time (1 point per second)
+            if (timestamp - lastTime >= 1000) { // Every 1 second
+                score++;
+                scoreElement.textContent = score;
+                tickSound.play(); // Play tick sound for score increase
+                lastTime = timestamp;
+            }
+
+            // Spawn new asteroids periodically
+            if (Math.random() < 0.02) { // 2% chance per frame to spawn a new asteroid
+                spawnAsteroid();
+            }
+        }
+
+        function endGame() {
+            gameActive = false;
+            gameOverDiv.style.display = 'block';
+            restartButton.style.display = 'block';
+
+            // Save the current score to localStorage
+            let pastScores = JSON.parse(localStorage.getItem('pastScores')) || [];
+            pastScores.push(score);
+            localStorage.setItem('pastScores', JSON.stringify(pastScores.slice(-10))); // Keep only last 10 scores
+        }
+
+        function restartGame() {
+            gameActive = true;
+            gameOverDiv.style.display = 'none';
+            restartButton.style.display = 'none';
+            score = 0; // Reset score for new session
+            scoreElement.textContent = score;
+            player.x = 300;
+            player.y = 200;
+            player.speed = 8; // Reset speed
+            shieldActive = false; // Reset shield
+            asteroids = []; // Reset asteroids
+            powerUps = []; // Reset power-ups
+            initGame(); // Reinitialize game for new session
+            lastTime = performance.now(); // Reset timer for score
+
+            // Display scoreboard with past scores
+            let pastScores = JSON.parse(localStorage.getItem('pastScores')) || [];
+            if (pastScores.length > 0) {
+                scoreboardElement.style.display = 'block';
+                scoreboardElement.innerHTML = '<h3>Previous Scores:</h3><ul>' + 
+                    pastScores.map(s => `<li>Score: ${s}</li>`).join('') + '</ul>';
+                setTimeout(() => scoreboardElement.style.display = 'none', 5000); // Hide after 5 seconds
+            }
+        }
+
+        // Handle player movement with smoother controls (keyboard, mouse, touch)
+        document.addEventListener('keydown', (e) => {
+            if (!gameActive) return;
+            if (e.key === 'ArrowLeft' && player.x > 0) {
+                player.x -= player.speed;
+            } else if (e.key === 'ArrowRight' && player.x < canvas.width - player.width) {
+                player.x += player.speed;
+            } else if (e.key === 'ArrowUp' && player.y > 0) {
+                player.y -= player.speed;
+            } else if (e.key === 'ArrowDown' && player.y < canvas.height - player.height) {
+                player.y += player.speed;
+            }
+        });
+
+        // Mouse and touch controls
+        canvas.addEventListener('mousemove', (e) => {
+            if (!gameActive) return;
+            const rect = canvas.getBoundingClientRect();
+            player.x = e.clientX - rect.left - player.width / 2;
+            player.y = e.clientY - rect.top - player.height / 2;
+            // Keep player within bounds
+            player.x = Math.max(0, Math.min(player.x, canvas.width - player.width));
+            player.y = Math.max(0, Math.min(player.y, canvas.height - player.height));
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!gameActive) return;
+            e.preventDefault(); // Prevent scrolling
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            player.x = touch.clientX - rect.left - player.width / 2;
+            player.y = touch.clientY - rect.top - player.height / 2;
+            // Keep player within bounds
+            player.x = Math.max(0, Math.min(player.x, canvas.width - player.width));
+            player.y = Math.max(0, Math.min(player.y, canvas.height - player.height));
+        });
+
+        function gameLoop(timestamp) {
+            draw(timestamp);
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start the game with a new session
+        initGame();
+        gameLoop(performance.now());
+    </script>
+</body>
+</html>
